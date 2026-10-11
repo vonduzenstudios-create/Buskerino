@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buskerino Performer</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; align-items: center; }
+  .big { font-size: 1.15rem; padding: 14px 20px; }
+  .now { background: var(--panel); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; font-size: 1.2rem; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border-radius: var(--radius); padding: 16px; }
+  section h2 { margin: 0 0 10px; font-size: 1.1rem; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 4px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
+  td.n { color: var(--muted); width: 2em; }
+  td.v { color: var(--accent-2); font-weight: 700; text-align: right; width: 3em; }
+  td.a { text-align: right; white-space: nowrap; }
+  td button { padding: 4px 10px; font-size: .85rem; }
+  tr.frozen td { background: rgba(255,204,51,.12); }
+  tr.off td { opacity: .5; }
+  .links { font-size: .85rem; }
+  .links a { color: var(--accent); }
+  form { display: grid; gap: 10px; max-width: 320px; margin-top: 20px; }
+  input { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--panel-2); background: var(--panel); color: var(--text); }
+  #app { display: none; }
+</style>
+</head>
+<body>
+<h1>Performer controls</h1>
+
+<form id="login">
+  <input type="email" id="email" placeholder="Email" autocomplete="username" required>
+  <input type="password" id="password" placeholder="Password" autocomplete="current-password" required>
+  <button class="primary" type="submit">Log in</button>
+  <span class="muted" id="loginMsg"></span>
+</form>
+
+<div id="app">
+  <div class="links muted">
+    Open the <a href="display.html" target="_blank">stage display</a> and drag it to the second monitor (press F11 for fullscreen).
+    Audience link: <span id="aud"></span> · <a href="#" id="logout">Log out</a>
+  </div>
+
+  <div class="bar">
+    <button class="primary big" id="freeze">Lock in the leader</button>
+    <button class="big" id="played" disabled>Mark as played</button>
+    <button class="big" id="unfreeze" disabled>Unlock</button>
+    <span class="muted" id="stats"></span>
+  </div>
+  <div class="now" id="now"></div>
+
+  <div class="cols">
+    <section>
+      <h2>Live ranking</h2>
+      <table id="ranked"></table>
+    </section>
+    <section>
+      <h2>All songs</h2>
+      <p class="muted" style="margin-top:0;font-size:.85rem">Hidden songs don't show to the audience. Played songs can be put back.</p>
+      <table id="all"></table>
+      <div class="bar">
+        <button class="danger" id="reset">Reset votes for a new show</button>
+        <button id="load">Load songs.json</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="vendor/supabase.js"></script>
+<script type="module">
+import { sb, call, esc, watchShow, audienceUrl, configured, showSetupNeeded } from './js/app.js';
+
+if (!configured) { showSetupNeeded(); throw new Error('not configured'); }
+
+document.getElementById('aud').textContent = audienceUrl();
+
+async function act(fn, args) {
+  try { await call(fn, args); } catch (e) { alert(e.message); }
+}
+
+document.getElementById('freeze').onclick = () => act('freeze_leader');
+document.getElementById('played').onclick = () => act('mark_played');
+document.getElementById('unfreeze').onclick = () => act('unfreeze');
+document.getElementById('reset').onclick = () => {
+  if (confirm('Clear all votes and put every played song back on the list?')) act('reset_show');
+};
+document.getElementById('load').onclick = async () => {
+  if (!confirm('Replace the song list with songs.json? This clears all votes.')) return;
+  const { songs } = await (await fetch('songs.json', { cache: 'no-store' })).json();
+  act('load_songs', { p_songs: songs });
+};
+document.body.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.dataset.id;
+  if (b.dataset.act === 'lock') act('freeze_song', { p_song: id });
+  if (b.dataset.act === 'restore') act('restore_song', { p_song: id });
+  if (b.dataset.act === 'hide') act('set_active', { p_song: id, p_active: false });
+  if (b.dataset.act === 'show') act('set_active', { p_song: id, p_active: true });
+});
+
+function render(board, overview) {
+  const frozen = board.songs.find((s) => s.id === board.frozenId);
+  document.getElementById('now').innerHTML = frozen
+    ? `<span class="frozen-tag">LOCKED IN</span>${esc(frozen.title)} <span class="muted">(${frozen.votes} 👍)</span>`
+    : '<span class="muted">Nothing locked in. Press "Lock in the leader" when you\'re ready for the next song.</span>';
+  document.getElementById('freeze').disabled = !!frozen;
+  document.getElementById('played').disabled = !frozen;
+  document.getElementById('unfreeze').disabled = !frozen;
+  document.getElementById('stats').textContent = `${overview.voterCount} phones have voted`;
+
+  document.getElementById('ranked').innerHTML = board.songs.map((s, i) => `
+    <tr class="${s.id === board.frozenId ? 'frozen' : ''}">
+      <td class="n">${i + 1}</td><td>${esc(s.title)}</td><td class="v">${s.votes}</td>
+      <td class="a">${s.id === board.frozenId ? '' : `<button data-act="lock" data-id="${esc(s.id)}">Lock this</button>`}</td>
+    </tr>`).join('');
+
+  document.getElementById('all').innerHTML = overview.all.length ? overview.all.map((s) => `
+    <tr class="${!s.active || s.played ? 'off' : ''}">
+      <td class="n">${s.sort_order}</td><td>${esc(s.title)}${s.played ? ' <span class="muted">(played)</span>' : ''}</td>
+      <td class="a">
+        ${s.played ? `<button data-act="restore" data-id="${esc(s.id)}">Put back</button>` : ''}
+        <button data-act="${s.active ? 'hide' : 'show'}" data-id="${esc(s.id)}">${s.active ? 'Hide' : 'Show'}</button>
+      </td>
+    </tr>`).join('') : '<tr><td class="muted">No songs yet. Press "Load songs.json".</td></tr>';
+}
+
+let started = false;
+function start() {
+  if (started) return;
+  started = true;
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  watchShow(async () => {
+    const [board, overview] = await Promise.all([call('get_board'), call('performer_overview')]);
+    render(board, overview);
+  });
+}
+
+document.getElementById('login').onsubmit = async (e) => {
+  e.preventDefault();
+  const { error } = await sb.auth.signInWithPassword({
+    email: document.getElementById('email').value,
+    password: document.getElementById('password').value,
+  });
+  if (error) document.getElementById('loginMsg').textContent = error.message;
+  else start();
+};
+document.getElementById('logout').onclick = async (e) => {
+  e.preventDefault();
+  await sb.auth.signOut();
+  location.reload();
+};
+
+const { data: { session } } = await sb.auth.getSession();
+if (session && !session.user.is_anonymous) start();
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buskerino Stage</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  .stage { display: grid; grid-template-columns: 1fr 34vw; height: 100vh; gap: 2vh; padding: 2vh; }
+  .video {
+    background: #000; border-radius: var(--radius); overflow: hidden; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .video video { width: 100%; height: 100%; object-fit: cover; }
+  .video .placeholder { color: var(--muted); font-size: 3vh; text-align: center; padding: 4vh; }
+  .now {
+    position: absolute; left: 2vh; bottom: 2vh; right: 2vh; background: rgba(0,0,0,.65);
+    border-radius: 12px; padding: 1.5vh 2vh; font-size: 3.2vh; font-weight: 700; display: none;
+  }
+  .side { display: flex; flex-direction: column; gap: 2vh; min-height: 0; }
+  .list { background: var(--panel); border-radius: var(--radius); padding: 2vh; flex: 1; min-height: 0; overflow: hidden; }
+  .list h2 { margin: 0 0 1.5vh; font-size: 2.6vh; color: var(--accent); }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; gap: 1.2vh; align-items: center; padding: 0.9vh 0; font-size: 2.3vh;
+    border-bottom: 1px solid var(--panel-2);
+  }
+  li .rank { width: 2.2em; color: var(--muted); font-weight: 700; text-align: center; }
+  li .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .votes { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+  li.frozen { background: rgba(255,204,51,.12); border-radius: 8px; }
+  .qr { background: var(--panel); border-radius: var(--radius); padding: 2vh; display: flex; gap: 2vh; align-items: center; }
+  .qr .code { background: #fff; padding: 1vh; border-radius: 10px; line-height: 0; }
+  .qr .code img { width: 18vh; height: 18vh; image-rendering: pixelated; }
+  .qr .text { font-size: 2.6vh; font-weight: 700; }
+  .qr .text small { display: block; font-weight: 400; font-size: 1.8vh; color: var(--muted); margin-top: .8vh; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="video" id="video">
+    <div class="placeholder">Video area<br><small>Gameplay loops arrive in step 2</small></div>
+    <div class="now" id="now"></div>
+  </div>
+  <div class="side">
+    <div class="list">
+      <h2>Vote for the next song</h2>
+      <ol id="list"></ol>
+    </div>
+    <div class="qr">
+      <div class="code" id="qr"></div>
+      <div class="text">Scan to vote<small id="url"></small></div>
+    </div>
+  </div>
+</div>
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/supabase.js"></script>
+<script type="module">
+import { call, esc, watchShow, audienceUrl, configured, showSetupNeeded } from './js/app.js';
+
+if (!configured) { showSetupNeeded(); throw new Error('not configured'); }
+
+const url = audienceUrl();
+const qr = qrcode(0, 'M');
+qr.addData(url);
+qr.make();
+document.getElementById('qr').innerHTML = qr.createImgTag(6, 0);
+document.getElementById('url').textContent = url.replace(/^https?:\/\//, '');
+
+watchShow(async () => {
+  const board = await call('get_board');
+  document.getElementById('list').innerHTML = board.songs.map((s, i) => {
+    const frozen = s.id === board.frozenId;
+    return `<li class="${frozen ? 'frozen' : ''}">
+      <span class="rank">${frozen ? '▶' : i + 1}</span>
+      <span class="title">${frozen ? '<span class="frozen-tag">UP NEXT</span>' : ''}${esc(s.title)}</span>
+      <span class="votes">${frozen ? '' : s.votes + ' 👍'}</span>
+    </li>`;
+  }).join('');
+  const frozen = board.songs.find((s) => s.id === board.frozenId);
+  const now = document.getElementById('now');
+  now.style.display = frozen ? 'block' : 'none';
+  now.textContent = frozen ? `Up next: ${frozen.title}` : '';
+});
+</script>
+</body>
+</html>

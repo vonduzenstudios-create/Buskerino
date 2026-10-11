@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vote for the next song</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  header { position: sticky; top: 0; background: var(--bg); padding: 16px; border-bottom: 1px solid var(--panel-2); z-index: 1; }
+  h1 { margin: 0 0 6px; font-size: 1.3rem; }
+  .thumbs { font-size: 1.4rem; letter-spacing: 4px; }
+  ul { list-style: none; margin: 0; padding: 12px 16px 40px; }
+  li {
+    display: flex; align-items: center; gap: 12px; background: var(--panel);
+    border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
+  }
+  li.frozen { outline: 2px solid var(--accent); }
+  .rank { width: 1.8em; text-align: center; color: var(--muted); font-weight: 700; }
+  .title { flex: 1; line-height: 1.3; }
+  .count { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 2.5em; text-align: right; }
+  .vote { min-width: 56px; font-size: 1.2rem; }
+  .vote.mine { background: var(--accent-2); color: #002614; }
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: 16px; background: var(--danger); color: #fff;
+    padding: 12px; border-radius: 10px; text-align: center; display: none;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pick the next song</h1>
+  <div><span class="thumbs" id="thumbs"></span> <span class="muted" id="left"></span></div>
+  <div class="muted" style="font-size:.85rem;margin-top:4px">Tap a thumb to vote, tap again to take it back. Thumbs come back after your song is played.</div>
+</header>
+<ul id="list"><li class="muted">Loading…</li></ul>
+<div id="toast"></div>
+<script src="vendor/supabase.js"></script>
+<script type="module">
+import { sb, call, esc, watchShow, configured, showSetupNeeded } from './js/app.js';
+
+if (!configured) { showSetupNeeded(); throw new Error('not configured'); }
+
+let board = { songs: [], votesPerDevice: 3 };
+let mine = [];
+
+function render() {
+  const total = board.votesPerDevice;
+  const remaining = Math.max(0, total - mine.length);
+  document.getElementById('thumbs').textContent = '👍'.repeat(remaining) + '▫️'.repeat(total - remaining);
+  document.getElementById('left').textContent = remaining === 1 ? '1 thumb left' : `${remaining} thumbs left`;
+  document.getElementById('list').innerHTML = board.songs.map((s, i) => {
+    const frozen = s.id === board.frozenId;
+    const isMine = mine.includes(s.id);
+    const btn = frozen
+      ? '<span class="frozen-tag">UP NEXT</span>'
+      : `<button class="vote ${isMine ? 'mine' : ''}" data-id="${esc(s.id)}" ${!isMine && remaining <= 0 ? 'disabled' : ''}>👍</button>`;
+    return `<li class="${frozen ? 'frozen' : ''}">
+      <span class="rank">${i + 1}</span>
+      <span class="title">${esc(s.title)}</span>
+      <span class="count">${s.votes}</span>
+      ${btn}
+    </li>`;
+  }).join('');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.style.display = 'none'), 2500);
+}
+
+// Each phone signs in anonymously; that login is what limits it to 3 thumbs.
+const { data: { session } } = await sb.auth.getSession();
+if (!session) {
+  const { error } = await sb.auth.signInAnonymously();
+  if (error) toast('Could not connect: ' + error.message);
+}
+
+document.getElementById('list').addEventListener('click', async (e) => {
+  const b = e.target.closest('button.vote');
+  if (!b) return;
+  const id = b.dataset.id;
+  b.disabled = true;
+  try {
+    mine = await call(mine.includes(id) ? 'remove_vote' : 'cast_vote', { p_song: id });
+  } catch (err) {
+    toast(err.message);
+  }
+  render();
+});
+
+watchShow(async () => {
+  [board, mine] = await Promise.all([call('get_board'), call('my_votes')]);
+  render();
+});
+</script>
+</body>
+</html>
