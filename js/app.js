@@ -1,7 +1,7 @@
 // Shared Supabase client and live board updates for all three pages.
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
-export const configured = !SUPABASE_URL.includes('YOUR-PROJECT');
+export const configured = !SUPABASE_ANON_KEY.includes('YOUR-');
 
 export const sb = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
