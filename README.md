@@ -55,6 +55,13 @@ Set a song's video with the `"video"` field in [`songs.json`](songs.json). It ca
 (add `&t=90` to start 90 seconds in) or a link to an MP4 file (for example one you put in a `videos/`
 folder in this repo). Push the change and reload the display; no need to press Load songs.json.
 
+## Up next cards
+
+The stage display shows the top 3 songs (no vote counts) as cards: game art, the game name, and the
+song name. These come from the `game`, `song` and `art` fields in [`songs.json`](songs.json). `art` is an
+image link (the game's box art from Wikipedia by default); if it fails to load, the card uses the
+song's YouTube video thumbnail instead.
+
 ## How the vote limit works
 
 Each phone signs in anonymously and gets 3 thumbs, at most one per song. The database enforces this,

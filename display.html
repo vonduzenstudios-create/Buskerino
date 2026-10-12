@@ -28,16 +28,17 @@
   }
   .side { display: flex; flex-direction: column; gap: 2vh; min-height: 0; }
   .list { background: var(--panel); border-radius: var(--radius); padding: 2vh; flex: 1; min-height: 0; overflow: hidden; }
-  .list h2 { margin: 0 0 1.5vh; font-size: 2.6vh; color: var(--accent); }
-  ol { list-style: none; margin: 0; padding: 0; }
-  li {
-    display: flex; gap: 1.2vh; align-items: center; padding: 0.9vh 0; font-size: 2.3vh;
-    border-bottom: 1px solid var(--panel-2);
+  .list h2 { margin: 0 0 2vh; font-size: 3vh; color: var(--accent); }
+  ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2vh; }
+  li { display: flex; gap: 2vh; align-items: center; }
+  li .art {
+    width: 18vh; height: 18vh; flex: none; border-radius: 10px; background: var(--panel-2);
+    object-fit: cover; box-shadow: 0 0.6vh 1.6vh rgba(0,0,0,.4);
   }
-  li .rank { width: 2.2em; color: var(--muted); font-weight: 700; text-align: center; }
-  li .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  li .votes { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; }
-  li.frozen { background: rgba(255,204,51,.12); border-radius: 8px; }
+  li .text { min-width: 0; }
+  li .game { font-size: 2.1vh; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  li .song { font-size: 3.6vh; font-weight: 700; margin-top: .4vh; }
+  li .game, li .song { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .qr { background: var(--panel); border-radius: var(--radius); padding: 2vh; display: flex; gap: 2vh; align-items: center; }
   .qr .code { background: #fff; padding: 1vh; border-radius: 10px; line-height: 0; }
   .qr .code img { width: 18vh; height: 18vh; image-rendering: pixelated; }
@@ -56,7 +57,7 @@
   </div>
   <div class="side">
     <div class="list">
-      <h2>Vote for the next song</h2>
+      <h2>Up next</h2>
       <ol id="list"></ol>
     </div>
     <div class="qr">
@@ -79,20 +80,51 @@ qr.make();
 document.getElementById('qr').innerHTML = qr.createImgTag(6, 0);
 document.getElementById('url').textContent = url.replace(/^https?:\/\//, '');
 
-// Videos come from songs.json, so they can be changed by editing that file.
-const videos = {};
+// Game, song, art and video come from songs.json, so they can be changed by editing that file.
+const info = {};
 try {
   const { songs } = await (await fetch('songs.json', { cache: 'no-store' })).json();
-  for (const s of songs) if (s.video) videos[s.id] = s.video;
+  for (const s of songs) info[s.id] = s;
 } catch (e) { console.error(e); }
+const videos = {};
+for (const s of Object.values(info)) if (s.video) videos[s.id] = s.video;
+
+function youtubeId(link) {
+  let u;
+  try { u = new URL(link); } catch { return null; }
+  if (u.hostname === 'youtu.be') return u.pathname.slice(1);
+  if (u.pathname.startsWith('/shorts/') || u.pathname.startsWith('/embed/')) return u.pathname.split('/')[2];
+  return u.searchParams.get('v');
+}
+
+// Game art: the song's "art" image, falling back to its YouTube video's thumbnail if that fails.
+function thumbFor(id) {
+  const s = info[id] || {};
+  const yt = s.video && youtubeId(s.video);
+  return yt ? `https://i.ytimg.com/vi/${encodeURIComponent(yt)}/hqdefault.jpg` : '';
+}
+function artFor(id) {
+  return (info[id] || {}).art || thumbFor(id);
+}
+window.artFailed = (img) => {
+  const thumb = img.dataset.thumb;
+  if (thumb && img.src !== thumb) img.src = thumb;
+  else img.style.visibility = 'hidden';
+};
+
+// "Game - Song" titles from the database are split if songs.json has no game/song fields.
+function names(song) {
+  const s = info[song.id] || {};
+  if (s.game) return { game: s.game, song: s.song || '' };
+  const [game, ...rest] = song.title.split(/\s+-\s+|:\s+/);
+  return { game, song: rest.join(' - ') };
+}
 
 // Turns a YouTube link (watch, youtu.be, shorts; optional t= start) into a muted looping embed.
 function youtubeEmbed(link) {
   let u;
   try { u = new URL(link); } catch { return null; }
-  let id = u.searchParams.get('v');
-  if (u.hostname === 'youtu.be') id = u.pathname.slice(1);
-  if (u.pathname.startsWith('/shorts/') || u.pathname.startsWith('/embed/')) id = u.pathname.split('/')[2];
+  const id = youtubeId(link);
   if (!id) return null;
   const start = parseInt(u.searchParams.get('t') || u.searchParams.get('start') || '0', 10) || 0;
   const q = new URLSearchParams({
@@ -141,18 +173,22 @@ showSong(null);
 
 watchShow(async () => {
   const board = await call('get_board');
-  document.getElementById('list').innerHTML = board.songs.map((s, i) => {
-    const frozen = s.id === board.frozenId;
-    return `<li class="${frozen ? 'frozen' : ''}">
-      <span class="rank">${frozen ? '▶' : i + 1}</span>
-      <span class="title">${frozen ? '<span class="frozen-tag">NOW PLAYING</span>' : ''}${esc(s.title)}</span>
-      <span class="votes">${frozen ? '' : s.votes + ' 👍'}</span>
+  const upNext = board.songs.filter((s) => s.id !== board.frozenId).slice(0, 3);
+  document.getElementById('list').innerHTML = upNext.map((s) => {
+    const n = names(s);
+    const art = artFor(s.id);
+    return `<li>
+      ${art ? `<img class="art" src="${esc(art)}" data-thumb="${esc(thumbFor(s.id))}" alt="" onerror="artFailed(this)">` : '<div class="art"></div>'}
+      <div class="text"><div class="game">${esc(n.game)}</div><div class="song">${esc(n.song)}</div></div>
     </li>`;
   }).join('');
   const frozen = board.songs.find((s) => s.id === board.frozenId);
   const now = document.getElementById('now');
   now.style.display = frozen ? 'block' : 'none';
-  now.textContent = frozen ? `Now playing: ${frozen.title}` : '';
+  if (frozen) {
+    const n = names(frozen);
+    now.textContent = `Now playing: ${n.song ? `${n.game} - ${n.song}` : n.game}`;
+  }
   showSong(frozen);
 });
 </script>
