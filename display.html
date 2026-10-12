@@ -15,7 +15,13 @@
   .video video, .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; }
   /* Scale the YouTube frame up slightly so its title bar and edges sit outside the box. */
   .video iframe { inset: -8% -8%; width: 116%; height: 116%; pointer-events: none; }
-  .video .placeholder { color: var(--muted); font-size: 3vh; text-align: center; padding: 4vh; }
+  .layer { position: absolute; inset: 0; overflow: hidden; opacity: 0; transition: opacity 1.2s ease; }
+  .layer.on { opacity: 1; }
+  .layer img { width: 100%; height: 100%; object-fit: cover; }
+  .placeholder {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 3vh; text-align: center; padding: 4vh;
+  }
   .now {
     position: absolute; left: 2vh; bottom: 2vh; right: 2vh; background: rgba(0,0,0,.65);
     border-radius: 12px; padding: 1.5vh 2vh; font-size: 3.2vh; font-weight: 700; display: none;
@@ -42,8 +48,10 @@
 <body>
 <div class="stage">
   <div class="video" id="video">
-    <div class="placeholder" id="placeholder">BUSKERINO<br><small>Vote on your phone to pick the next song</small></div>
-    <div id="player"></div>
+    <div class="layer" id="between">
+      <div class="placeholder">BUSKERINO<br><small>Vote on your phone to pick the next song</small></div>
+    </div>
+    <div class="layer" id="player"></div>
     <div class="now" id="now"></div>
   </div>
   <div class="side">
@@ -94,19 +102,42 @@ function youtubeEmbed(link) {
   return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${q}`;
 }
 
-// The video keeps playing after a song is marked played, until the next one is locked in.
-let playingFor = null;
-function playVideoFor(song) {
-  const link = song.video || videos[song.id];
-  if (!link || playingFor === song.id) return;
-  playingFor = song.id;
-  const player = document.getElementById('player');
+// In-between screen: media/inbetweensongs.mp4 if it exists, else media/inbetweensongs.png,
+// else the BUSKERINO placeholder.
+async function exists(path) {
+  try { return (await fetch(path, { method: 'HEAD', cache: 'no-store' })).ok; } catch { return false; }
+}
+const between = document.getElementById('between');
+if (await exists('media/inbetweensongs.mp4')) {
+  between.innerHTML = '<video src="media/inbetweensongs.mp4" autoplay muted loop playsinline></video>';
+} else if (await exists('media/inbetweensongs.png')) {
+  between.innerHTML = '<img src="media/inbetweensongs.png" alt="">';
+}
+
+// Locking a song fades its video in; marking it played (or unlocking) fades back to the in-between screen.
+const player = document.getElementById('player');
+let playingFor; // undefined so the first call always runs
+let clearTimer = null;
+function showSong(song) {
+  const id = song ? song.id : null;
+  if (id === playingFor) return;
+  playingFor = id;
+  clearTimeout(clearTimer);
+  const link = song && (song.video || videos[song.id]);
+  if (!link) {
+    player.classList.remove('on');
+    between.classList.add('on');
+    clearTimer = setTimeout(() => (player.innerHTML = ''), 1300); // stop the old video after the fade
+    return;
+  }
   const yt = youtubeEmbed(link);
   player.innerHTML = yt
     ? `<iframe src="${esc(yt)}" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe>`
     : `<video src="${esc(link)}" autoplay muted loop playsinline></video>`;
-  document.getElementById('placeholder').style.display = 'none';
+  player.classList.add('on');
+  between.classList.remove('on');
 }
+showSong(null);
 
 watchShow(async () => {
   const board = await call('get_board');
@@ -114,15 +145,15 @@ watchShow(async () => {
     const frozen = s.id === board.frozenId;
     return `<li class="${frozen ? 'frozen' : ''}">
       <span class="rank">${frozen ? '▶' : i + 1}</span>
-      <span class="title">${frozen ? '<span class="frozen-tag">UP NEXT</span>' : ''}${esc(s.title)}</span>
+      <span class="title">${frozen ? '<span class="frozen-tag">NOW PLAYING</span>' : ''}${esc(s.title)}</span>
       <span class="votes">${frozen ? '' : s.votes + ' 👍'}</span>
     </li>`;
   }).join('');
   const frozen = board.songs.find((s) => s.id === board.frozenId);
   const now = document.getElementById('now');
   now.style.display = frozen ? 'block' : 'none';
-  now.textContent = frozen ? `Up next: ${frozen.title}` : '';
-  if (frozen) playVideoFor(frozen);
+  now.textContent = frozen ? `Now playing: ${frozen.title}` : '';
+  showSong(frozen);
 });
 </script>
 </body>

@@ -52,7 +52,7 @@ function render() {
     const frozen = s.id === board.frozenId;
     const isMine = mine.includes(s.id);
     const btn = frozen
-      ? '<span class="frozen-tag">UP NEXT</span>'
+      ? '<span class="frozen-tag">NOW PLAYING</span>'
       : `<button class="vote ${isMine ? 'mine' : ''}" data-id="${esc(s.id)}" ${!isMine && remaining <= 0 ? 'disabled' : ''}>👍</button>`;
     return `<li class="${frozen ? 'frozen' : ''}">
       <span class="rank">${i + 1}</span>

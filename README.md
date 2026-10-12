@@ -47,8 +47,9 @@ then press **Load songs.json** on the performer page. Loading clears the current
 
 ## Gameplay videos
 
-When you lock in a song, the stage display plays that song's video on a silent loop. It keeps playing
-after you mark the song played, until the next song is locked in.
+When you lock in a song, the stage display fades in that song's video on a silent loop. When you mark it
+played (or unlock it), the video fades out to your in-between screen: put `inbetweensongs.mp4` or
+`inbetweensongs.png` in the [`media/`](media/) folder. Until you add one, a BUSKERINO title screen shows.
 
 Set a song's video with the `"video"` field in [`songs.json`](songs.json). It can be a YouTube link
 (add `&t=90` to start 90 seconds in) or a link to an MP4 file (for example one you put in a `videos/`
