@@ -12,7 +12,9 @@
     background: #000; border-radius: var(--radius); overflow: hidden; position: relative;
     display: flex; align-items: center; justify-content: center;
   }
-  .video video { width: 100%; height: 100%; object-fit: cover; }
+  .video video, .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; }
+  /* Scale the YouTube frame up slightly so its title bar and edges sit outside the box. */
+  .video iframe { inset: -8% -8%; width: 116%; height: 116%; pointer-events: none; }
   .video .placeholder { color: var(--muted); font-size: 3vh; text-align: center; padding: 4vh; }
   .now {
     position: absolute; left: 2vh; bottom: 2vh; right: 2vh; background: rgba(0,0,0,.65);
@@ -40,7 +42,8 @@
 <body>
 <div class="stage">
   <div class="video" id="video">
-    <div class="placeholder">Video area<br><small>Gameplay loops arrive in step 2</small></div>
+    <div class="placeholder" id="placeholder">BUSKERINO<br><small>Vote on your phone to pick the next song</small></div>
+    <div id="player"></div>
     <div class="now" id="now"></div>
   </div>
   <div class="side">
@@ -68,6 +71,43 @@ qr.make();
 document.getElementById('qr').innerHTML = qr.createImgTag(6, 0);
 document.getElementById('url').textContent = url.replace(/^https?:\/\//, '');
 
+// Videos come from songs.json, so they can be changed by editing that file.
+const videos = {};
+try {
+  const { songs } = await (await fetch('songs.json', { cache: 'no-store' })).json();
+  for (const s of songs) if (s.video) videos[s.id] = s.video;
+} catch (e) { console.error(e); }
+
+// Turns a YouTube link (watch, youtu.be, shorts; optional t= start) into a muted looping embed.
+function youtubeEmbed(link) {
+  let u;
+  try { u = new URL(link); } catch { return null; }
+  let id = u.searchParams.get('v');
+  if (u.hostname === 'youtu.be') id = u.pathname.slice(1);
+  if (u.pathname.startsWith('/shorts/') || u.pathname.startsWith('/embed/')) id = u.pathname.split('/')[2];
+  if (!id) return null;
+  const start = parseInt(u.searchParams.get('t') || u.searchParams.get('start') || '0', 10) || 0;
+  const q = new URLSearchParams({
+    autoplay: 1, mute: 1, loop: 1, playlist: id, controls: 0, rel: 0,
+    modestbranding: 1, playsinline: 1, iv_load_policy: 3, disablekb: 1, start,
+  });
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${q}`;
+}
+
+// The video keeps playing after a song is marked played, until the next one is locked in.
+let playingFor = null;
+function playVideoFor(song) {
+  const link = song.video || videos[song.id];
+  if (!link || playingFor === song.id) return;
+  playingFor = song.id;
+  const player = document.getElementById('player');
+  const yt = youtubeEmbed(link);
+  player.innerHTML = yt
+    ? `<iframe src="${esc(yt)}" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe>`
+    : `<video src="${esc(link)}" autoplay muted loop playsinline></video>`;
+  document.getElementById('placeholder').style.display = 'none';
+}
+
 watchShow(async () => {
   const board = await call('get_board');
   document.getElementById('list').innerHTML = board.songs.map((s, i) => {
@@ -82,6 +122,7 @@ watchShow(async () => {
   const now = document.getElementById('now');
   now.style.display = frozen ? 'block' : 'none';
   now.textContent = frozen ? `Up next: ${frozen.title}` : '';
+  if (frozen) playVideoFor(frozen);
 });
 </script>
 </body>

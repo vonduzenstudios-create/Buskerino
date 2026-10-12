@@ -45,6 +45,15 @@ Open `performer.html` on the site, log in, and press **Load songs.json**.
 Edit [`songs.json`](songs.json) (order = starting priority, `"active": false` = hidden), push it,
 then press **Load songs.json** on the performer page. Loading clears the current votes.
 
+## Gameplay videos
+
+When you lock in a song, the stage display plays that song's video on a silent loop. It keeps playing
+after you mark the song played, until the next song is locked in.
+
+Set a song's video with the `"video"` field in [`songs.json`](songs.json). It can be a YouTube link
+(add `&t=90` to start 90 seconds in) or a link to an MP4 file (for example one you put in a `videos/`
+folder in this repo). Push the change and reload the display; no need to press Load songs.json.
+
 ## How the vote limit works
 
 Each phone signs in anonymously and gets 3 thumbs, at most one per song. The database enforces this,
